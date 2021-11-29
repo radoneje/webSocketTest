@@ -1,0 +1,116 @@
+extends layout
+
+block content
+    .pBody#app
+        .pBodyWr#pBodyWr
+            include bodyWr
+    script(src="/vue.min.js")
+    script.
+        var app = new Vue({
+            el: "#app",
+            data: {
+                isRunning: false,
+                isPause: false,
+                delta: localStorage.getItem("delta") || 5,
+                blocks: [],
+                promptBlocks: [],
+                config: {
+                    fontSize: localStorage.getItem("pfontSize") || 72,
+                    mirror:true,
+                }
+            },
+            methods: {
+                html: function (txt) {
+                    txt=txt.replace(/\(\(SOT[^\)\)]+\)\)/g,"\r\n<span style='color:green; font-weight:bold'>SOT</span>\r\n")
+                    txt = txt.replace(/\(\([^\)\)]+\)\)/g, "")
+
+                    txt = txt.replace(/^[\r\n]{0,100}/, "");
+                    txt = txt.replace(/[\r\n]{2,100}/g, "</br></br>");
+
+                    txt = txt.replace(/\n/g, "</br>");
+                    return txt;
+                },
+                startPrompt:function (){},
+                resize:function (){
+                    var pPrompt = document.querySelector("#pPrompt");
+                    pPrompt.style.transform = "scale(" + document.body.clientWidth / pPrompt.clientWidth + ")"
+                    pPrompt.style.fontSize = this.config.fontSize + "px";
+                }
+            },
+            watch:{
+                config:function (){
+
+                    document.getElementById("pPrompt").style.fontSize = this.config.fontSize + "px";
+                    var mirror=this.config.mirror=="true"|| this.config.mirror==true;
+                    document.getElementById("pBodyWr").style.transform="scaleX("+(mirror?-1:1)+")"
+                }
+            },
+            mounted: async function () {
+                this.resize();
+                window.addEventListener('resize', ()=>{this.resize();}, true);
+            }
+        });
+        var elem = document.querySelector(".items")
+
+
+        var wsConnection;
+        initWs();
+        function initWs() {
+            wsConnection = new WebSocket("ws://" + location.host);
+
+            wsConnection.onopen = function () {
+                console.log("Соединение установлено.");
+                wsConnection.onmessage = async (message) => {
+                    try {
+                        var data = JSON.parse(await message.data)
+                        if (data.sender == "controller") {
+                            if (data.cmd == "startPrompt") {
+                                app.config = data.config;
+
+                                app.promptBlocks = data.val
+                            }
+                            if (data.cmd == "stopPrompt") {
+                                app.config = data.config;
+
+                                app.promptBlocks = []
+                            }
+
+                            if (data.cmd == "promptChange") {
+                                elem.style.top = data.val + "px";
+                            }
+
+
+                        }
+                    } catch (e) {
+                        console.warn(e)
+                    }
+                    // console.log("message ",message.data);
+                }
+            };
+
+            wsConnection.onclose = function (event) {
+                if (event.wasClean) {
+                    console.log('Соединение закрыто чисто');
+                } else {
+                    console.log('Обрыв соединения'); // например, "убит" процесс сервера
+                }
+                console.log('Код: ' + event.code + ' причина: ' + event.reason);
+                setTimeout(initWs,500);
+            };
+
+            wsConnection.onerror = function (error) {
+                console.log("Ошибка " + error.message);
+            };
+        }
+
+        const wsSend = function (data) {
+            // readyState - true, если есть подключение
+            if (!wsConnection.readyState) {
+                setTimeout(function () {
+                    wsSend(data);
+                }, 100);
+            } else {
+                wsConnection.send(data);
+            }
+        };
+
